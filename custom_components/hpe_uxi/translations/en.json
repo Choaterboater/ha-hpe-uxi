@@ -1,0 +1,92 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to HPE UXI",
+        "description": "Use a personal API client from HPE GreenLake (Manage Workspace → Personal API clients) made for your UXI service. It only needs to read. The secret is stored only in this config entry; nothing in UXI is changed.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client secret",
+          "base_url": "UXI API host"
+        },
+        "data_description": {
+          "base_url": "Leave the default unless HPE gave you another UXI API host."
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "GreenLake or UXI refused this client id / secret, or the client may not read UXI sensors.",
+      "cannot_connect": "Could not reach UXI at that host."
+    },
+    "abort": {
+      "already_configured": "This UXI workspace is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HPE UXI",
+        "data": {
+          "scan_seconds": "Check UXI every (seconds)"
+        },
+        "data_description": {
+          "scan_seconds": "Each check reads the status of every UXI sensor (one request per sensor). Sensors, agents, service tests and networks are read every 5 minutes."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sensors_online": {
+        "name": "Sensors online"
+      },
+      "sensors_offline": {
+        "name": "Sensors offline"
+      },
+      "active_issues": {
+        "name": "Active issues"
+      },
+      "agents": {
+        "name": "Agents"
+      },
+      "service_tests": {
+        "name": "Service tests enabled"
+      },
+      "networks": {
+        "name": "Networks"
+      },
+      "issues": {
+        "name": "Issues"
+      },
+      "group": {
+        "name": "Group"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      },
+      "testing": {
+        "name": "Testing"
+      },
+      "issue": {
+        "name": "Issue"
+      }
+    },
+    "event": {
+      "events": {
+        "name": "Events",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "sensor_offline": "Sensor offline",
+              "sensor_online": "Sensor online",
+              "issue_confirmed": "Issue confirmed",
+              "issue_resolved": "Issue resolved"
+            }
+          }
+        }
+      }
+    }
+  }
+}

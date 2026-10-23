@@ -1,0 +1,40 @@
+{
+  "entity": {
+    "sensor": {
+      "sensors_online": {
+        "default": "mdi:access-point-check"
+      },
+      "sensors_offline": {
+        "default": "mdi:access-point-off"
+      },
+      "active_issues": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "agents": {
+        "default": "mdi:laptop"
+      },
+      "service_tests": {
+        "default": "mdi:clipboard-check-outline"
+      },
+      "networks": {
+        "default": "mdi:lan"
+      },
+      "issues": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "group": {
+        "default": "mdi:folder-outline"
+      }
+    },
+    "binary_sensor": {
+      "testing": {
+        "default": "mdi:test-tube"
+      }
+    },
+    "event": {
+      "events": {
+        "default": "mdi:bell-outline"
+      }
+    }
+  }
+}
