@@ -14,8 +14,17 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import HpeUxiConfigEntry
 from .const import MAX_LIST_ROWS
 from .coordinator import HpeUxiCoordinator, active_issues
-from .entity import UxiEntity, account_device_info, account_uid, add_entities_as_seen, sensor_device_info, sensor_uid
-from .source import Issue, Sensor, Snapshot
+from .entity import (
+    UxiEntity,
+    account_device_info,
+    account_uid,
+    add_entities_as_seen,
+    agent_device_info,
+    agent_uid,
+    sensor_device_info,
+    sensor_uid,
+)
+from .source import Agent, Issue, Sensor, Snapshot
 
 # List-shaped attributes stay out of the recorder.
 _LIST_ATTRS = frozenset({"issues", "agents", "tests", "networks"})
@@ -93,6 +102,15 @@ DEVICE_SENSORS = (
     ),
 )
 
+# --- each UXI agent: value_fn(agent). UXI's API has no status for agents, only what they are. ----
+
+AGENT_SENSORS = (
+    UxiSensorDescription(
+        key="group", translation_key="group", entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda a: a.get("group"),
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -106,6 +124,9 @@ async def async_setup_entry(
         for sid in list(c.data.sensors):
             for d in DEVICE_SENSORS:
                 yield f"{sensor_uid(entry, sid)}_{d.key}", lambda s=sid, d=d: DeviceSensor(c, entry, s, d)
+        for aid in list(c.data.agents):
+            for d in AGENT_SENSORS:
+                yield f"{agent_uid(entry, aid)}_{d.key}", lambda a=aid, d=d: AgentSensor(c, entry, a, d)
 
     add_entities_as_seen(entry, c, async_add_entities, candidates)
 
@@ -157,3 +178,26 @@ class DeviceSensor(UxiEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         fn, s = self.entity_description.attrs_fn, self._sensor()
         return fn(s) if fn and s else None
+
+
+class AgentSensor(UxiEntity, SensorEntity):
+    entity_description: UxiSensorDescription
+
+    def __init__(self, c: HpeUxiCoordinator, entry, agent_id: str, description: UxiSensorDescription) -> None:
+        super().__init__(c)
+        self.entity_description = description
+        self._aid = agent_id
+        self._attr_unique_id = f"{agent_uid(entry, agent_id)}_{description.key}"
+        self._attr_device_info = agent_device_info(c.hass, entry, c.data.agents[agent_id])
+
+    def _agent(self) -> Agent | None:
+        return self.coordinator.data.agents.get(self._aid)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._agent() is not None
+
+    @property
+    def native_value(self) -> Any:
+        a = self._agent()
+        return self.entity_description.value_fn(a) if a else None

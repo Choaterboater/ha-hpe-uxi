@@ -23,6 +23,15 @@ changed. One config entry per UXI workspace (GreenLake workspace) gives you:
 - **A device per UXI sensor**, under the workspace: *Online*, *Testing*, *Issue*
   (on while the sensor has an issue that is not resolved), *Issues* (count;
   attribute `issues`) and, as a diagnostic, *Group*.
+- **A device per UXI agent** (UXI running as software on a laptop, phone or VM,
+  sometimes called a virtual sensor), under the workspace: name, model, serial,
+  MACs and, as a diagnostic, *Group*. UXI's API gives no online or issue status
+  for agents, so they have no Online / Issue entities.
+
+If the API client may not read agents (or another list), the log says so once
+(`UXI agents not read: UXI refused the API client`). The diagnostics download
+(Settings → Devices & services → HPE UXI → ⋮ → Download diagnostics) lists what
+UXI returned, with credentials, serials, MACs and notes removed.
 
 List attributes are capped at 200 rows and kept out of the recorder.
 

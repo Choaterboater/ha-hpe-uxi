@@ -13,7 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import UxiClient
 from .const import CONF_BASE_URL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, DEFAULT_BASE_URL, DOMAIN
 from .coordinator import HpeUxiCoordinator
-from .entity import account_device_info, sensor_uid
+from .entity import account_device_info, agent_uid, sensor_uid
 from .source import UxiSource
 
 PLATFORMS = [
@@ -51,9 +51,10 @@ async def _options_changed(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry, coordinator: HpeUxiCoordinator) -> None:
-    """Drop UXI sensors the workspace no longer lists."""
-    keep = {sensor_uid(entry, sid) for sid in coordinator.data.sensors}
-    prefix = sensor_uid(entry, "")
+    """Drop UXI sensors and agents the workspace no longer lists."""
+    keep = {sensor_uid(entry, sid) for sid in coordinator.data.sensors} | {
+        agent_uid(entry, aid) for aid in coordinator.data.agents}
+    prefix = (sensor_uid(entry, ""), agent_uid(entry, ""))
     dev_reg = dr.async_get(hass)
     for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
         idents = {i for d, i in dev.identifiers if d == DOMAIN}

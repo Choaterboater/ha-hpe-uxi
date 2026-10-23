@@ -191,6 +191,43 @@ async def test_workspace_and_sensor_entities(hass, aioclient_mock):
     assert (dr.CONNECTION_NETWORK_MAC, "02:00:00:00:02:02") in office.connections
 
 
+async def test_agents_are_devices(hass, aioclient_mock):
+    """UXI agents (the "virtual sensors" on laptops, phones and VMs) get a device each, under the workspace."""
+    uxi(aioclient_mock)
+    e = await setup(hass)
+    dev_reg = dr.async_get(hass)
+    account = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_account"), e.entry_id)
+    agent = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_agent_{AGENTS[0]['id']}"), e.entry_id)
+    assert agent is not None and agent.name == "Laptop agent"
+    assert agent.model == "Example laptop" and agent.serial_number == "SAMPLEA1"
+    assert agent.via_device_id == account.id
+    assert hass.states.get("sensor.laptop_agent_group").state == "Home"
+
+
+async def test_agent_list_refused_is_warned_once(hass, aioclient_mock, freezer, caplog):
+    uxi(aioclient_mock)
+    aioclient_mock._mocks = [m for m in aioclient_mock._mocks if "/agents" not in str(m._url)]
+    aioclient_mock.get(f"{BASE}/agents?limit=100", status=403)
+    e = await setup(hass)
+    assert hass.states.get("sensor.hpe_uxi_agents").state == "0"
+    assert e.runtime_data.data.skipped == ["agents", "wired networks"]  # the fake UXI has no wired list (404)
+    await tick(hass, freezer, INVENTORY_SECONDS + 1)
+    assert caplog.text.count("UXI agents not read") == 1
+
+
+async def test_diagnostics_redact_credentials_and_identifiers(hass, aioclient_mock):
+    from custom_components.hpe_uxi.diagnostics import async_get_config_entry_diagnostics
+
+    uxi(aioclient_mock, status={LOBBY: OK, OFFICE: WITH_ISSUE})
+    e = await setup(hass)
+    diag = await async_get_config_entry_diagnostics(hass, e)
+    assert diag["counts"] == {"sensors": 2, "agents": 1, "service_tests": 2, "networks": 1}
+    assert diag["agents"][0]["name"] == "Laptop agent" and diag["agents"][0]["serial"] == "**REDACTED**"
+    text = str(diag)
+    for private in (SECRET, CLIENT_ID, TENANT, "SAMPLE0001", "02:00:00:00:01:01"):
+        assert private not in text
+
+
 async def test_events_for_sensors_and_issues(hass, aioclient_mock, freezer):
     uxi(aioclient_mock, status={LOBBY: OK, OFFICE: WITH_ISSUE})
     await setup(hass)
@@ -256,6 +293,7 @@ async def test_new_sensor_added_and_removed_sensor_dropped(hass, aioclient_mock,
     dev_reg = dr.async_get(hass)
     assert dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_sensor_{OFFICE}"), e.entry_id) is None
     assert dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_sensor_{LOBBY}"), e.entry_id) is not None
+    assert dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_agent_{AGENTS[0]['id']}"), e.entry_id) is not None
 
 
 async def test_refused_credentials_retry_setup_and_unload(hass, aioclient_mock):

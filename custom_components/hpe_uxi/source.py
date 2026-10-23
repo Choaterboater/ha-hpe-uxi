@@ -48,6 +48,7 @@ class Snapshot:
     agents: dict[str, Agent] = field(default_factory=dict)
     tests: dict[str, Test] = field(default_factory=dict)
     networks: dict[str, Network] = field(default_factory=dict)
+    skipped: list[str] = field(default_factory=list)  # lists UXI refused (403) or does not have (404)
 
 
 def mac_pretty(value: Any) -> str | None:
@@ -159,6 +160,7 @@ class UxiSource:
         self._inventory: Snapshot | None = None
         self._inventory_at = 0.0
         self._status: dict[str, dict[str, Any]] = {}  # sensor id -> last status read
+        self._skipped: set[str] = set()
 
     async def sweep(self) -> Snapshot:
         """Everything now. Raises SourceError (or a subclass) when the sensor list cannot be read."""
@@ -166,32 +168,47 @@ class UxiSource:
         if self._inventory is None or now - self._inventory_at >= INVENTORY_SECONDS:
             self._inventory = Snapshot(
                 sensors=_by_id(await self.client.sensors(), sensor_from),
-                agents=_by_id(await self._optional(self.client.agents), agent_from),
-                tests=_by_id(await self._optional(self.client.service_tests), service_test_from),
+                agents=_by_id(await self._optional("agents", self.client.agents), agent_from),
+                tests=_by_id(await self._optional("service tests", self.client.service_tests), service_test_from),
                 networks={
-                    **_by_id(await self._optional(self.client.wireless_networks), lambda r: network_from(r, "wireless")),
-                    **_by_id(await self._optional(self.client.wired_networks), lambda r: network_from(r, "wired")),
+                    **_by_id(await self._optional("wireless networks", self.client.wireless_networks),
+                             lambda r: network_from(r, "wireless")),
+                    **_by_id(await self._optional("wired networks", self.client.wired_networks),
+                             lambda r: network_from(r, "wired")),
                 },
+                skipped=[],
             )
             self._inventory_at = now
         inv = self._inventory
         sensors = {sid: {**s, **await self._sensor_status(sid)} for sid, s in inv.sensors.items()}
         self._status = {sid: self._status[sid] for sid in sensors if sid in self._status}
-        return Snapshot(sensors=sensors, agents=inv.agents, tests=inv.tests, networks=inv.networks)
+        return Snapshot(sensors=sensors, agents=inv.agents, tests=inv.tests, networks=inv.networks,
+                        skipped=sorted(self._skipped))
 
     def forget(self) -> None:
         """Read the sensor list (and the rest of the inventory) again on the next sweep."""
         self._inventory = None
 
-    async def _optional(self, call: Callable[[], Awaitable[list[dict[str, Any]]]]) -> list[dict[str, Any]]:
-        """A list the API client may not be allowed to read (403) or that this UXI does not have (404): empty."""
+    async def _optional(self, what: str, call: Callable[[], Awaitable[list[dict[str, Any]]]]) -> list[dict[str, Any]]:
+        """A list the API client may not be allowed to read (403) or that this UXI does not have (404): empty.
+
+        A refusal is logged as a warning once, because it hides things (agents are often the "virtual sensors").
+        """
         try:
-            return await call()
+            rows = await call()
         except UxiError as err:
-            if err.status in (403, 404):
-                _LOGGER.debug("UXI list skipped: %s", err)
-                return []
-            raise
+            if err.status not in (403, 404):
+                raise
+            if what not in self._skipped:
+                if err.status == 403:
+                    _LOGGER.warning("UXI %s not read: UXI refused the API client (%s). Give it read access to %s.",
+                                    what, err.status, what)
+                else:
+                    _LOGGER.debug("UXI %s skipped: %s", what, err)
+            self._skipped.add(what)
+            return []
+        self._skipped.discard(what)
+        return rows
 
     async def _sensor_status(self, sensor_id: str) -> dict[str, Any]:
         """This sensor's status now; when UXI refuses only this sensor (403, 404...) the last one read.

@@ -1,4 +1,4 @@
-"""Shared entity helpers: device info for the UXI workspace and each UXI sensor, and adding entities as sensors appear."""
+"""Shared entity helpers: device info for the UXI workspace, sensors and agents, and adding entities as they appear."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_TENANT_ID, DOMAIN, MANUFACTURER
 from .coordinator import HpeUxiCoordinator
-from .source import Sensor
+from .source import Agent, Sensor
 
 
 def tenant_of(entry: ConfigEntry) -> str:
@@ -30,6 +30,10 @@ def sensor_uid(entry: ConfigEntry, sensor_id: str) -> str:
     return f"{tenant_of(entry)}_sensor_{sensor_id}"
 
 
+def agent_uid(entry: ConfigEntry, agent_id: str) -> str:
+    return f"{tenant_of(entry)}_agent_{agent_id}"
+
+
 def account_device_info(entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, account_uid(entry))},
@@ -42,16 +46,25 @@ def account_device_info(entry: ConfigEntry) -> DeviceInfo:
 
 def sensor_device_info(hass: HomeAssistant, entry: ConfigEntry, sensor: Sensor) -> DeviceInfo:
     """One UXI sensor, under the workspace device."""
+    return _device_info(hass, entry, sensor, sensor_uid(entry, sensor["id"]), "Sensor")
+
+
+def agent_device_info(hass: HomeAssistant, entry: ConfigEntry, agent: Agent) -> DeviceInfo:
+    """One UXI agent (UXI running as software: a laptop, a phone, a VM), under the workspace device."""
+    return _device_info(hass, entry, agent, agent_uid(entry, agent["id"]), "Agent")
+
+
+def _device_info(hass: HomeAssistant, entry: ConfigEntry, row: Sensor | Agent, uid: str, model: str) -> DeviceInfo:
     info = DeviceInfo(
-        identifiers={(DOMAIN, sensor_uid(entry, sensor["id"]))},
-        name=sensor["name"],
+        identifiers={(DOMAIN, uid)},
+        name=row["name"],
         manufacturer=MANUFACTURER,
-        model=sensor.get("model") or "Sensor",
+        model=row.get("model") or model,
     )
-    if macs := {m for m in (sensor.get("wifi_mac"), sensor.get("ethernet_mac")) if m}:
+    if macs := {m for m in (row.get("wifi_mac"), row.get("ethernet_mac")) if m}:
         info["connections"] = {(dr.CONNECTION_NETWORK_MAC, m) for m in macs}
-    if sensor.get("serial"):
-        info["serial_number"] = sensor["serial"]
+    if row.get("serial"):
+        info["serial_number"] = row["serial"]
     account = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, account_uid(entry)), entry.entry_id)
     if account is not None:
         info["via_device_id"] = account.id
