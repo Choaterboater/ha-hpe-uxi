@@ -186,7 +186,8 @@ async def test_workspace_and_sensor_entities(hass, aioclient_mock):
     e = hass.config_entries.async_entries(DOMAIN)[0]
     account = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_account"), e.entry_id)
     office = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_sensor_{OFFICE}"), e.entry_id)
-    assert office.via_device_id == account.id
+    group = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_group_000000000001.000000000002"), e.entry_id)
+    assert office.via_device_id == group.id and group.via_device_id == account.id
     assert office.serial_number == "SAMPLE0002" and office.model == "UX-F5C"
     assert (dr.CONNECTION_NETWORK_MAC, "02:00:00:00:02:02") in office.connections
 
@@ -196,12 +197,36 @@ async def test_agents_are_devices(hass, aioclient_mock):
     uxi(aioclient_mock)
     e = await setup(hass)
     dev_reg = dr.async_get(hass)
-    account = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_account"), e.entry_id)
     agent = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_agent_{AGENTS[0]['id']}"), e.entry_id)
+    group = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_group_000000000001"), e.entry_id)
     assert agent is not None and agent.name == "Laptop agent"
     assert agent.model == "Example laptop" and agent.serial_number == "SAMPLEA1"
-    assert agent.via_device_id == account.id
+    assert agent.via_device_id == group.id
     assert hass.states.get("sensor.laptop_agent_group").state == "Home"
+
+
+async def test_groups_are_devices_with_their_own_counts(hass, aioclient_mock):
+    """Each UXI group (often a site) is a device under the workspace, with the sensors and agents in it under it."""
+    north = sensor_row("00000000-0000-0000-0000-000000000003", "North", "SAMPLE0003", None)
+    north |= {"groupName": "Branch North", "groupPath": "000000000001.000000000009"}
+    uxi(aioclient_mock, sensors=[*SENSORS, north],
+        status={LOBBY: OK, OFFICE: WITH_ISSUE, north["id"]: {**OK, "isOnline": False}})
+    e = await setup(hass)
+    dev_reg = dr.async_get(hass)
+    account = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_account"), e.entry_id)
+    branch = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_group_000000000001.000000000009"), e.entry_id)
+    assert branch.name == "Branch North" and branch.model == "UXI group" and branch.via_device_id == account.id
+    sensor = dev_reg.async_get_device_by_identifier((DOMAIN, f"{TENANT}_sensor_{north['id']}"), e.entry_id)
+    assert sensor.via_device_id == branch.id
+    s = hass.states.get
+    assert s("sensor.branch_north_sensors_offline").state == "1"
+    assert s("sensor.branch_north_sensors_online").state == "0"
+    assert s("sensor.branch_north_active_issues").state == "0"
+    # Two groups are named Home: the one with the shorter path keeps the name, the other becomes "Home 2".
+    assert s("sensor.home_agents").state == "1"
+    assert s("sensor.home_2_sensors_online").state == "2"  # Lobby and Office
+    assert s("sensor.home_2_active_issues").state == "1"
+    assert s("sensor.hpe_uxi_sensors_offline").state == "1"  # the workspace still counts them all
 
 
 async def test_agent_list_refused_is_warned_once(hass, aioclient_mock, freezer, caplog):
@@ -221,7 +246,7 @@ async def test_diagnostics_redact_credentials_and_identifiers(hass, aioclient_mo
     uxi(aioclient_mock, status={LOBBY: OK, OFFICE: WITH_ISSUE})
     e = await setup(hass)
     diag = await async_get_config_entry_diagnostics(hass, e)
-    assert diag["counts"] == {"sensors": 2, "agents": 1, "service_tests": 2, "networks": 1}
+    assert diag["counts"] == {"sensors": 2, "agents": 1, "service_tests": 2, "networks": 1, "groups": 2}
     assert diag["agents"][0]["name"] == "Laptop agent" and diag["agents"][0]["serial"] == "**REDACTED**"
     text = str(diag)
     for private in (SECRET, CLIENT_ID, TENANT, "SAMPLE0001", "02:00:00:00:01:01"):

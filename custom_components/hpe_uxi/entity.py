@@ -14,7 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_TENANT_ID, DOMAIN, MANUFACTURER
 from .coordinator import HpeUxiCoordinator
-from .source import Agent, Sensor
+from .source import Agent, Sensor, group_names
 
 
 def tenant_of(entry: ConfigEntry) -> str:
@@ -34,6 +34,10 @@ def agent_uid(entry: ConfigEntry, agent_id: str) -> str:
     return f"{tenant_of(entry)}_agent_{agent_id}"
 
 
+def group_uid(entry: ConfigEntry, path: str) -> str:
+    return f"{tenant_of(entry)}_group_{path}"
+
+
 def account_device_info(entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(
         identifiers={(DOMAIN, account_uid(entry))},
@@ -44,13 +48,30 @@ def account_device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
+def group_device_info(entry: ConfigEntry, path: str, name: str) -> DeviceInfo:
+    return DeviceInfo(identifiers={(DOMAIN, group_uid(entry, path))}, name=name, manufacturer=MANUFACTURER,
+                      model="UXI group")
+
+
+@callback
+def ensure_group_devices(hass: HomeAssistant, entry: ConfigEntry, coordinator: HpeUxiCoordinator) -> None:
+    """UXI groups (often a site each) are registered first, under the workspace, so sensors and agents sit under them."""
+    dev_reg = dr.async_get(hass)
+    account = dev_reg.async_get_device_by_identifier((DOMAIN, account_uid(entry)), entry.entry_id)
+    for path, name in group_names(coordinator.data).items():
+        info = group_device_info(entry, path, name)
+        if account is not None:
+            info["via_device_id"] = account.id
+        dev_reg.async_get_or_create(config_entry_id=entry.entry_id, **info)
+
+
 def sensor_device_info(hass: HomeAssistant, entry: ConfigEntry, sensor: Sensor) -> DeviceInfo:
-    """One UXI sensor, under the workspace device."""
+    """One UXI sensor, under its group (else the workspace)."""
     return _device_info(hass, entry, sensor, sensor_uid(entry, sensor["id"]), "Sensor")
 
 
 def agent_device_info(hass: HomeAssistant, entry: ConfigEntry, agent: Agent) -> DeviceInfo:
-    """One UXI agent (UXI running as software: a laptop, a phone, a VM), under the workspace device."""
+    """One UXI agent (UXI running as software: a laptop, a phone, a VM), under its group (else the workspace)."""
     return _device_info(hass, entry, agent, agent_uid(entry, agent["id"]), "Agent")
 
 
@@ -65,9 +86,13 @@ def _device_info(hass: HomeAssistant, entry: ConfigEntry, row: Sensor | Agent, u
         info["connections"] = {(dr.CONNECTION_NETWORK_MAC, m) for m in macs}
     if row.get("serial"):
         info["serial_number"] = row["serial"]
-    account = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, account_uid(entry)), entry.entry_id)
-    if account is not None:
-        info["via_device_id"] = account.id
+    dev_reg = dr.async_get(hass)
+    parent = None
+    if row.get("group_path"):
+        parent = dev_reg.async_get_device_by_identifier((DOMAIN, group_uid(entry, row["group_path"])), entry.entry_id)
+    parent = parent or dev_reg.async_get_device_by_identifier((DOMAIN, account_uid(entry)), entry.entry_id)
+    if parent is not None:
+        info["via_device_id"] = parent.id
     return info
 
 

@@ -21,10 +21,12 @@ from .entity import (
     add_entities_as_seen,
     agent_device_info,
     agent_uid,
+    group_device_info,
+    group_uid,
     sensor_device_info,
     sensor_uid,
 )
-from .source import Agent, Issue, Sensor, Snapshot
+from .source import Agent, Issue, Sensor, Snapshot, group_names
 
 # List-shaped attributes stay out of the recorder.
 _LIST_ATTRS = frozenset({"issues", "agents", "tests", "networks"})
@@ -33,8 +35,8 @@ _MEASURE = SensorStateClass.MEASUREMENT
 
 @dataclass(frozen=True, kw_only=True)
 class UxiSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[Any], Any]
-    attrs_fn: Callable[[Any], dict[str, Any]] | None = None
+    value_fn: Callable[..., Any]
+    attrs_fn: Callable[..., dict[str, Any]] | None = None
 
 
 def _issue_row(i: Issue) -> dict[str, Any]:
@@ -88,6 +90,37 @@ ACCOUNT_SENSORS = (
     ),
 )
 
+# --- each UXI group (often a site): value_fn(snapshot, group path) -------------
+
+
+def _group_sensors(d: Snapshot, path: str) -> list[Sensor]:
+    return [s for s in d.sensors.values() if s.get("group_path") == path]
+
+
+def _group_issues(d: Snapshot, path: str) -> list[Issue]:
+    return [i for s in _group_sensors(d, path) for i in active_issues(s)]
+
+
+GROUP_SENSORS = (
+    UxiSensorDescription(
+        key="sensors_online", translation_key="sensors_online", state_class=_MEASURE,
+        value_fn=lambda d, p: sum(1 for s in _group_sensors(d, p) if s.get("online") is True),
+    ),
+    UxiSensorDescription(
+        key="sensors_offline", translation_key="sensors_offline", state_class=_MEASURE,
+        value_fn=lambda d, p: sum(1 for s in _group_sensors(d, p) if s.get("online") is False),
+    ),
+    UxiSensorDescription(
+        key="active_issues", translation_key="active_issues", state_class=_MEASURE,
+        value_fn=lambda d, p: len(_group_issues(d, p)),
+        attrs_fn=lambda d, p: {"issues": _issue_rows(_group_issues(d, p))},
+    ),
+    UxiSensorDescription(
+        key="agents", translation_key="agents", state_class=_MEASURE,
+        value_fn=lambda d, p: sum(1 for a in d.agents.values() if a.get("group_path") == p),
+    ),
+)
+
 # --- each UXI sensor: value_fn(sensor) ----------------------------------------
 
 DEVICE_SENSORS = (
@@ -121,6 +154,9 @@ async def async_setup_entry(
     async_add_entities(AccountSensor(c, entry, d) for d in ACCOUNT_SENSORS)
 
     def candidates():
+        for path, name in group_names(c.data).items():
+            for d in GROUP_SENSORS:
+                yield f"{group_uid(entry, path)}_{d.key}", lambda p=path, n=name, d=d: GroupSensor(c, entry, p, n, d)
         for sid in list(c.data.sensors):
             for d in DEVICE_SENSORS:
                 yield f"{sensor_uid(entry, sid)}_{d.key}", lambda s=sid, d=d: DeviceSensor(c, entry, s, d)
@@ -149,6 +185,31 @@ class AccountSensor(UxiEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         fn = self.entity_description.attrs_fn
         return fn(self.coordinator.data) if fn else None
+
+
+class GroupSensor(UxiEntity, SensorEntity):
+    entity_description: UxiSensorDescription
+    _unrecorded_attributes = _LIST_ATTRS
+
+    def __init__(self, c: HpeUxiCoordinator, entry, path: str, name: str, description: UxiSensorDescription) -> None:
+        super().__init__(c)
+        self.entity_description = description
+        self._path = path
+        self._attr_unique_id = f"{group_uid(entry, path)}_{description.key}"
+        self._attr_device_info = group_device_info(entry, path, name)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._path in group_names(self.coordinator.data)
+
+    @property
+    def native_value(self) -> Any:
+        return self.entity_description.value_fn(self.coordinator.data, self._path)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator.data, self._path) if fn else None
 
 
 class DeviceSensor(UxiEntity, SensorEntity):

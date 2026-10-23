@@ -3,13 +3,14 @@
 Everything is normalised here into the plain dicts below, so the rest of the
 code never sees the UXI API.
 
-Sensor:  id, name, serial, model, group, wifi_mac, ethernet_mac, notes, address_note,
+Sensor:  id, name, serial, model, group, group_path, wifi_mac, ethernet_mac, notes, address_note,
          online (bool), testing (bool), issues [Issue] (online / testing / issues are
          None until the sensor's status has been read once).
 Issue:   id, code, severity ("ERROR" | "WARNING" | "INFO"), status ("CONFIRMED" |
          "RESOLVED"), timestamp, incident_id, sensor_id, sensor, network_id, network,
          service_test_id, service_test, interface, group.
-Agent:   id, name, serial, model, group, wifi_mac, ethernet_mac.
+Agent:   id, name, serial, model, group, group_path, wifi_mac, ethernet_mac.
+A UXI group (often one per site) is known by its path; group_names() names one device per group.
 Test:    id, name, category, target, template, enabled (bool).
 Network: id, name, kind ("wireless" | "wired"), ssid, security, vlan.
 Any value may be None when UXI does not report it. Sensors, agents, tests and
@@ -80,6 +81,7 @@ def sensor_from(row: dict[str, Any]) -> Sensor:
         "group": _text(row.get("groupName")),
         "wifi_mac": mac_pretty(row.get("wifiMacAddress")),
         "ethernet_mac": mac_pretty(row.get("ethernetMacAddress")),
+        "group_path": _text(row.get("groupPath")),
         "notes": _text(row.get("notes")),
         "address_note": _text(row.get("addressNote")),
     }
@@ -94,6 +96,7 @@ def agent_from(row: dict[str, Any]) -> Agent:
         "group": _text(row.get("groupName")),
         "wifi_mac": mac_pretty(row.get("wifiMacAddress")),
         "ethernet_mac": mac_pretty(row.get("ethernetMacAddress")),
+        "group_path": _text(row.get("groupPath")),
     }
 
 
@@ -146,6 +149,21 @@ def status_from(row: dict[str, Any]) -> dict[str, Any]:
         "testing": _bool(row.get("isTesting")),
         "issues": [issue_from(i) for i in row.get("issues") or [] if isinstance(i, dict)],
     }
+
+
+def group_names(snap: Snapshot) -> dict[str, str]:
+    """Group path -> a name for its device: the group's name, with " 2", " 3"... when two groups share one."""
+    found: dict[str, str] = {}
+    for row in [*snap.sensors.values(), *snap.agents.values()]:
+        if path := row.get("group_path"):
+            found.setdefault(path, row.get("group") or path)
+    out: dict[str, str] = {}
+    seen: dict[str, int] = {}
+    for path in sorted(found):
+        name = found[path]
+        seen[name] = seen.get(name, 0) + 1
+        out[path] = name if seen[name] == 1 else f"{name} {seen[name]}"
+    return out
 
 
 def _by_id(rows: list[dict[str, Any]], make: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, dict[str, Any]]:

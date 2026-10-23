@@ -13,8 +13,8 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import UxiClient
 from .const import CONF_BASE_URL, CONF_CLIENT_ID, CONF_CLIENT_SECRET, DEFAULT_BASE_URL, DOMAIN
 from .coordinator import HpeUxiCoordinator
-from .entity import account_device_info, agent_uid, sensor_uid
-from .source import UxiSource
+from .entity import account_device_info, agent_uid, ensure_group_devices, group_uid, sensor_uid
+from .source import UxiSource, group_names
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -36,6 +36,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: HpeUxiConfigEntry) -> bo
     entry.runtime_data = coordinator
     # The workspace is registered first so the UXI sensors can sit under it.
     dr.async_get(hass).async_get_or_create(config_entry_id=entry.entry_id, **account_device_info(entry))
+    # Then each group (often a site), so the sensors and agents can sit under their group.
+    ensure_group_devices(hass, entry, coordinator)
+    entry.async_on_unload(coordinator.async_add_listener(lambda: ensure_group_devices(hass, entry, coordinator)))
     _remove_stale_devices(hass, entry, coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_options_changed))
@@ -51,10 +54,11 @@ async def _options_changed(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 def _remove_stale_devices(hass: HomeAssistant, entry: ConfigEntry, coordinator: HpeUxiCoordinator) -> None:
-    """Drop UXI sensors and agents the workspace no longer lists."""
-    keep = {sensor_uid(entry, sid) for sid in coordinator.data.sensors} | {
-        agent_uid(entry, aid) for aid in coordinator.data.agents}
-    prefix = (sensor_uid(entry, ""), agent_uid(entry, ""))
+    """Drop UXI sensors, agents and groups the workspace no longer lists."""
+    d = coordinator.data
+    keep = ({sensor_uid(entry, sid) for sid in d.sensors} | {agent_uid(entry, aid) for aid in d.agents}
+            | {group_uid(entry, path) for path in group_names(d)})
+    prefix = (sensor_uid(entry, ""), agent_uid(entry, ""), group_uid(entry, ""))
     dev_reg = dr.async_get(hass)
     for dev in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
         idents = {i for d, i in dev.identifiers if d == DOMAIN}

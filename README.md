@@ -20,11 +20,14 @@ changed. One config entry per UXI workspace (GreenLake workspace) gives you:
     target, enabled)
   - *Networks* (attribute `networks`: name, wireless / wired, SSID, security, VLAN)
   - an **Events** entity (see below)
-- **A device per UXI sensor**, under the workspace: *Online*, *Testing*, *Issue*
+- **A device per UXI group** (often one per site), under the workspace: *Sensors
+  online*, *Sensors offline*, *Active issues* and *Agents* for that group only. Two
+  groups with the same name get " 2", " 3"... added.
+- **A device per UXI sensor**, under its group: *Online*, *Testing*, *Issue*
   (on while the sensor has an issue that is not resolved), *Issues* (count;
   attribute `issues`) and, as a diagnostic, *Group*.
 - **A device per UXI agent** (UXI running as software on a laptop, phone or VM,
-  sometimes called a virtual sensor), under the workspace: name, model, serial,
+  sometimes called a virtual sensor), under its group: name, model, serial,
   MACs and, as a diagnostic, *Group*. UXI's API gives no online or issue status
   for agents, so they have no Online / Issue entities.
 
