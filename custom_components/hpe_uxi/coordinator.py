@@ -85,10 +85,12 @@ class HpeUxiCoordinator(DataUpdateCoordinator[Snapshot]):
     # --- events -----------------------------------------------------------
 
     def _events(self, old: Snapshot, new: Snapshot) -> None:
-        """Sensor online / offline and issue confirmed / resolved, compared with the last good sweep."""
-        for sid, s in new.sensors.items():
-            if (was := old.sensors.get(sid)) is None:
-                continue  # a new sensor: no event
+        """Sensor or agent online / offline and issue confirmed / resolved, compared with the last good sweep."""
+        rows = [(sid, s, old.sensors.get(sid)) for sid, s in new.sensors.items()]
+        rows += [(aid, a, old.agents.get(aid)) for aid, a in new.agents.items()]
+        for sid, s, was in rows:
+            if was is None:
+                continue  # a new sensor or agent: no event
             if None not in (was.get("online"), s.get("online")) and was["online"] != s["online"]:
                 self._emit(EVENT_SENSOR_ONLINE if s["online"] else EVENT_SENSOR_OFFLINE,
                            {"sensor": s["name"], "sensor_id": sid, "serial": s.get("serial")})

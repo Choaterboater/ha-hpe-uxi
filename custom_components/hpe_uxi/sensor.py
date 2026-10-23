@@ -49,7 +49,7 @@ def _issue_rows(issues: list[Issue]) -> list[dict[str, Any]]:
 
 
 def _all_issues(d: Snapshot) -> list[Issue]:
-    return [i for s in d.sensors.values() for i in active_issues(s)]
+    return [i for s in [*d.sensors.values(), *d.agents.values()] for i in active_issues(s)]
 
 
 def _by_name(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -98,7 +98,8 @@ def _group_sensors(d: Snapshot, path: str) -> list[Sensor]:
 
 
 def _group_issues(d: Snapshot, path: str) -> list[Issue]:
-    return [i for s in _group_sensors(d, path) for i in active_issues(s)]
+    agents = [a for a in d.agents.values() if a.get("group_path") == path]
+    return [i for s in [*_group_sensors(d, path), *agents] for i in active_issues(s)]
 
 
 GROUP_SENSORS = (
@@ -135,14 +136,9 @@ DEVICE_SENSORS = (
     ),
 )
 
-# --- each UXI agent: value_fn(agent). UXI's API has no status for agents, only what they are. ----
+# --- each UXI agent: the same as a sensor (UXI gives agents the same status) ----
 
-AGENT_SENSORS = (
-    UxiSensorDescription(
-        key="group", translation_key="group", entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda a: a.get("group"),
-    ),
-)
+AGENT_SENSORS = DEVICE_SENSORS
 
 
 async def async_setup_entry(
@@ -243,6 +239,7 @@ class DeviceSensor(UxiEntity, SensorEntity):
 
 class AgentSensor(UxiEntity, SensorEntity):
     entity_description: UxiSensorDescription
+    _unrecorded_attributes = _LIST_ATTRS
 
     def __init__(self, c: HpeUxiCoordinator, entry, agent_id: str, description: UxiSensorDescription) -> None:
         super().__init__(c)
@@ -262,3 +259,8 @@ class AgentSensor(UxiEntity, SensorEntity):
     def native_value(self) -> Any:
         a = self._agent()
         return self.entity_description.value_fn(a) if a else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        fn, a = self.entity_description.attrs_fn, self._agent()
+        return fn(a) if fn and a else None

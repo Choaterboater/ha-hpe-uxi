@@ -9,7 +9,8 @@ Sensor:  id, name, serial, model, group, group_path, wifi_mac, ethernet_mac, not
 Issue:   id, code, severity ("ERROR" | "WARNING" | "INFO"), status ("CONFIRMED" |
          "RESOLVED"), timestamp, incident_id, sensor_id, sensor, network_id, network,
          service_test_id, service_test, interface, group.
-Agent:   id, name, serial, model, group, group_path, wifi_mac, ethernet_mac.
+Agent:   id, name, serial, model, group, group_path, wifi_mac, ethernet_mac, online, testing, issues
+         (as for a sensor: UXI reads an agent's status with /sensors/{id}/status too).
 A UXI group (often one per site) is known by its path; group_names() names one device per group.
 Test:    id, name, category, target, template, enabled (bool).
 Network: id, name, kind ("wireless" | "wired"), ssid, security, vlan.
@@ -199,8 +200,9 @@ class UxiSource:
             self._inventory_at = now
         inv = self._inventory
         sensors = {sid: {**s, **await self._sensor_status(sid)} for sid, s in inv.sensors.items()}
-        self._status = {sid: self._status[sid] for sid in sensors if sid in self._status}
-        return Snapshot(sensors=sensors, agents=inv.agents, tests=inv.tests, networks=inv.networks,
+        agents = {aid: {**a, **await self._sensor_status(aid)} for aid, a in inv.agents.items()}
+        self._status = {sid: self._status[sid] for sid in [*sensors, *agents] if sid in self._status}
+        return Snapshot(sensors=sensors, agents=agents, tests=inv.tests, networks=inv.networks,
                         skipped=sorted(self._skipped))
 
     def forget(self) -> None:

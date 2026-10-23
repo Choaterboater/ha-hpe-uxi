@@ -27,9 +27,11 @@ changed. One config entry per UXI workspace (GreenLake workspace) gives you:
   (on while the sensor has an issue that is not resolved), *Issues* (count;
   attribute `issues`) and, as a diagnostic, *Group*.
 - **A device per UXI agent** (UXI running as software on a laptop, phone or VM,
-  sometimes called a virtual sensor), under its group: name, model, serial,
-  MACs and, as a diagnostic, *Group*. UXI's API gives no online or issue status
-  for agents, so they have no Online / Issue entities.
+  sometimes called a virtual sensor), under its group, with the same entities as a
+  sensor: UXI reads an agent's status with the sensor status call.
+
+UXI reports a sensor or agent offline only when it has not reported for 90 minutes,
+so *Online* is slow to turn off; a power cut shows sooner as an issue.
 
 If the API client may not read agents (or another list), the log says so once
 (`UXI agents not read: UXI refused the API client`). The diagnostics download

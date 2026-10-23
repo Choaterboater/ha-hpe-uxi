@@ -76,7 +76,7 @@ def uxi(aioclient_mock, sensors=None, status=None, token_status=200, list_status
     for path, items in (("agents", AGENTS), ("service-tests", TESTS), ("wireless-networks", WIRELESS)):
         aioclient_mock.get(f"{BASE}/{path}?limit=100", json={"items": items, "count": len(items), "next": None})
     aioclient_mock.get(f"{BASE}/wired-networks?limit=100", status=404)
-    for sid, body in (status if status is not None else {LOBBY: OK, OFFICE: OK}).items():
+    for sid, body in {AGENTS[0]["id"]: OK, **(status if status is not None else {LOBBY: OK, OFFICE: OK})}.items():
         if isinstance(body, int):
             aioclient_mock.get(f"{BASE}/sensors/{sid}/status", status=body)
         else:
@@ -203,6 +203,33 @@ async def test_agents_are_devices(hass, aioclient_mock):
     assert agent.model == "Example laptop" and agent.serial_number == "SAMPLEA1"
     assert agent.via_device_id == group.id
     assert hass.states.get("sensor.laptop_agent_group").state == "Home"
+    # UXI gives an agent's status with the sensor status call, so agents have the same entities.
+    assert hass.states.get("binary_sensor.laptop_agent_online").state == STATE_ON
+    assert hass.states.get("binary_sensor.laptop_agent_testing").state == STATE_ON
+    assert hass.states.get("binary_sensor.laptop_agent_issue").state == STATE_OFF
+    assert hass.states.get("sensor.laptop_agent_issues").state == "0"
+
+
+async def test_agent_status_issues_and_events(hass, aioclient_mock, freezer):
+    agent_id = AGENTS[0]["id"]
+    uxi(aioclient_mock)
+    await setup(hass)
+    fired = []
+
+    @callback
+    def record(event):
+        if event.data["entity_id"] == "event.hpe_uxi_events" and (new := event.data["new_state"]) is not None:
+            fired.append(dict(new.attributes))
+
+    hass.bus.async_listen("state_changed", record)
+    uxi(aioclient_mock, status={LOBBY: OK, OFFICE: OK, agent_id: {**WITH_ISSUE, "isOnline": False}})
+    await tick(hass, freezer)
+    assert hass.states.get("binary_sensor.laptop_agent_online").state == STATE_OFF
+    assert hass.states.get("binary_sensor.laptop_agent_issue").state == STATE_ON
+    assert hass.states.get("sensor.hpe_uxi_active_issues").state == "1"  # the workspace counts agent issues
+    assert hass.states.get("sensor.home_active_issues").state == "1"  # and so does the agent's group
+    assert [(f["event_type"], f["sensor"]) for f in fired] == [
+        ("sensor_offline", "Laptop agent"), ("issue_confirmed", "Laptop agent")]
 
 
 async def test_groups_are_devices_with_their_own_counts(hass, aioclient_mock):

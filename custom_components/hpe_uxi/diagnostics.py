@@ -25,5 +25,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: HpeUxiC
         "sensors": [async_redact_data({k: v for k, v in s.items() if k != "issues"}, TO_REDACT)
                     | {"issues": len(s["issues"]) if s.get("issues") is not None else None}
                     for s in d.sensors.values()],
-        "agents": [async_redact_data(a, TO_REDACT) for a in d.agents.values()],
+        "agents": [async_redact_data({k: v for k, v in a.items() if k != "issues"}, TO_REDACT)
+                   | {"issues": len(a["issues"]) if a.get("issues") is not None else None}
+                   for a in d.agents.values()],
     }
