@@ -53,9 +53,11 @@ Nothing fires on the first check after start, so a restart does not replay old i
 
 ## Install
 
-1. HACS → ⋮ → Custom repositories → `https://github.com/Choaterboater/ha-hpe-uxi`, type *Integration*.
-2. Download **HPE UXI**, restart Home Assistant.
-3. Settings → Devices & services → Add integration → **HPE UXI**.
+1. Open HACS, search for **HPE UXI**, download it and restart Home Assistant.
+2. Settings → Devices & services → Add integration → **HPE UXI**.
+
+Manual: if you don't use HACS, copy `custom_components/hpe_uxi` into your Home Assistant
+`config/custom_components/` folder, restart, then add the integration as in step 2.
 
 ## Set up
 
